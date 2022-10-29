@@ -10,6 +10,10 @@ from sql_metadata import Parser
 
 logger = logging.getLogger(__name__)
 
+_CATALOG = "catalog"
+_HADOOP_AWS_CREDENTIALS = "hadoop-aws-credentials"
+_LOG_LEVEL = "ALL"
+
 
 def get_aws_client(service: str, region: str = "us-east-1"):
     """
@@ -40,8 +44,14 @@ def get_secret_value(secret_name: str) -> dict:
 
 # noinspection PyShadowingNames
 def _get_table_mapping(query: str) -> Dict:
-    obj = get_s3_object(bucket="", key="").get("Body")
-    catalog = json.loads(obj.read())
+    catalog_details = json.loads(
+        get_secret_value(secret_name=_CATALOG).get("SecretString")
+    )
+    catalog_object = get_s3_object(
+        bucket=catalog_details.get("CATALOG_BUCKET"),
+        key=catalog_details.get("CATALOG_KEY"),
+    ).get("Body")
+    catalog = json.loads(catalog_object.read())
 
     mapping = dict()
     for table_name in Parser(query).tables:
@@ -82,17 +92,21 @@ if __name__ == "__main__":
     destination = args.get("destination").replace("s3", "s3a")
     job_id = args.get("id")
 
+    aws_credentials = json.loads(
+        get_secret_value(secret_name=_HADOOP_AWS_CREDENTIALS).get("SecretString")
+    )
+
     conf = SparkConf()
     conf.set("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4")
     conf.set(
         "spark.hadoop.fs.s3a.aws.credentials.provider",
         "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
     )
-    conf.set("spark.hadoop.fs.s3a.access.key", "")
-    conf.set("spark.hadoop.fs.s3a.secret.key", "")
+    conf.set("spark.hadoop.fs.s3a.access.key", aws_credentials.get("ACCESS_KEY"))
+    conf.set("spark.hadoop.fs.s3a.secret.key", aws_credentials.get("SECRET_ACCESS_KEY"))
 
     spark = SparkSession.builder.config(conf=conf).getOrCreate()
-    spark.sparkContext.setLogLevel("ALL")
+    spark.sparkContext.setLogLevel(_LOG_LEVEL)
 
     mapping = _get_table_mapping(query)
 
