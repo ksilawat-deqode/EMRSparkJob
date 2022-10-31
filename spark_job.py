@@ -47,7 +47,7 @@ def _get_table_mapping(query: str) -> Dict:
         get_secret_value(secret_name=_SECRETS).get("SecretString")
     )
     catalog_object = get_s3_object(
-        bucket=catalog_details.get("CATALOG_BUCKET"),
+        bucket=catalog_details.get("CATALOG_BUCKET_NAME"),
         key=catalog_details.get("CATALOG_KEY"),
     ).get("Body")
     catalog = json.loads(catalog_object.read())
