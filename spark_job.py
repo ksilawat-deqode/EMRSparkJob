@@ -10,8 +10,7 @@ from sql_metadata import Parser
 
 logger = logging.getLogger(__name__)
 
-_CATALOG = "catalog"
-_HADOOP_AWS_CREDENTIALS = "hadoop-aws-credentials"
+_SECRETS = "ibm-ccf-secrets"
 _LOG_LEVEL = "ALL"
 
 
@@ -45,7 +44,7 @@ def get_secret_value(secret_name: str) -> dict:
 # noinspection PyShadowingNames
 def _get_table_mapping(query: str) -> Dict:
     catalog_details = json.loads(
-        get_secret_value(secret_name=_CATALOG).get("SecretString")
+        get_secret_value(secret_name=_SECRETS).get("SecretString")
     )
     catalog_object = get_s3_object(
         bucket=catalog_details.get("CATALOG_BUCKET"),
@@ -93,7 +92,7 @@ if __name__ == "__main__":
     job_id = args.get("id")
 
     aws_credentials = json.loads(
-        get_secret_value(secret_name=_HADOOP_AWS_CREDENTIALS).get("SecretString")
+        get_secret_value(secret_name=_SECRETS).get("SecretString")
     )
 
     conf = SparkConf()
