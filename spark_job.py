@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _LOG_LEVEL = "ALL"
 
 
-def get_aws_client(service: str, region: str = "us-east-1"):
+def get_aws_client(service: str, region: str):
     """
     Method to get an AWS client for given service
     """
@@ -28,7 +28,7 @@ def get_s3_object(bucket: str, key: str) -> Dict:
     Method to get an S3 object
      for given bucket and key
     """
-    aws_client = get_aws_client("s3")
+    aws_client = get_aws_client("s3", region=region)
     return aws_client.get_object(Bucket=bucket, Key=key)
 
 
@@ -36,7 +36,7 @@ def get_secret_value(secret_name: str) -> dict:
     """
     Method to get a secret value for secret name
     """
-    aws_client = get_aws_client("secretsmanager")
+    aws_client = get_aws_client("secretsmanager", region=region)
     return aws_client.get_secret_value(SecretId=secret_name)
 
 
@@ -89,12 +89,18 @@ if __name__ == "__main__":
         type=str,
         help="Required secrets for credentials.",
     )
+    parser.add_argument(
+        "region",
+        type=str,
+        help="AWS region.",
+    )
 
     args = vars(parser.parse_args())
     query = args.get("query")
     destination = args.get("destination").replace("s3", "s3a")
     job_id = args.get("id")
     secrets = args.get("secrets")
+    region = args.get("region")
 
     aws_credentials = json.loads(
         get_secret_value(secret_name=secrets).get("SecretString")
