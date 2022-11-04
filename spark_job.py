@@ -53,8 +53,7 @@ def _get_table_mapping(query: str) -> Dict:
 
     mapping = dict()
     for table_name in Parser(query).tables:
-        file = f"{table_name}.parquet"
-        file_path = catalog.get(file).replace("s3", "s3a")
+        file_path = catalog.get(table_name).replace("s3", "s3a")
         logger.info(
             f"{job_id}-> Setting mapping for name:{table_name}, with path={file_path}"
         )
@@ -96,6 +95,7 @@ if __name__ == "__main__":
     )
 
     args = vars(parser.parse_args())
+
     query = args.get("query")
     destination = args.get("destination").replace("s3", "s3a")
     job_id = args.get("id")
