@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from typing import Dict
 
 import boto3
+from datetime import datetime
 from pyspark import SparkConf
 from pyspark.sql import DataFrame, SparkSession
 from sql_metadata import Parser
@@ -11,6 +12,7 @@ from sql_metadata import Parser
 logger = logging.getLogger(__name__)
 
 _LOG_LEVEL = "ALL"
+_ROLE_SESSION_NAME = "AssumeRoleSession"
 
 
 def get_aws_client(service: str, region: str):
@@ -32,12 +34,23 @@ def get_s3_object(bucket: str, key: str) -> Dict:
     return aws_client.get_object(Bucket=bucket, Key=key)
 
 
-def get_secret_value(secret_name: str) -> dict:
+def get_secret_value(secret_name: str):
     """
     Method to get a secret value for secret name
     """
     aws_client = get_aws_client("secretsmanager", region=region)
     return aws_client.get_secret_value(SecretId=secret_name)
+
+
+def get_assumed_role_object(role_arn: str) -> Dict:
+    """
+    Method to get role object
+    """
+    aws_client = get_aws_client("sts", region=region)
+    return aws_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=_ROLE_SESSION_NAME,
+    )
 
 
 # noinspection PyShadowingNames
@@ -54,7 +67,7 @@ def _get_table_mapping(query: str) -> Dict:
     mapping = dict()
     for table_name in Parser(query).tables:
         file_path = catalog.get(table_name).replace("s3", "s3a")
-        logger.info(
+        print(
             f"{job_id}-> Setting mapping for name:{table_name}, with path={file_path}"
         )
         mapping[table_name] = spark.read.parquet(f"{file_path}/*.parquet")
@@ -72,11 +85,6 @@ if __name__ == "__main__":
         "query",
         type=str,
         help="Required SQL query to be performed.",
-    )
-    parser.add_argument(
-        "destination",
-        type=str,
-        help="Required destination path for generated output.",
     )
     parser.add_argument(
         "id",
@@ -97,23 +105,40 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
 
     query = args.get("query")
-    destination = args.get("destination").replace("s3", "s3a")
     job_id = args.get("id")
     secrets = args.get("secrets")
     region = args.get("region")
 
-    aws_credentials = json.loads(
+    role_arn = json.loads(
         get_secret_value(secret_name=secrets).get("SecretString")
-    )
+    ).get("ASSUMED_ROLE_ARN")
+
+    aws_credentials = \
+        get_assumed_role_object(role_arn=role_arn).get("Credentials")
+
+    destination = json.loads(
+        get_secret_value(secret_name=secrets).get("SecretString")
+    ).get("INTERNAL_OUTPUT_DESTINATION")
+    destination = destination.replace("s3", "s3a")
 
     conf = SparkConf()
     conf.set("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4")
     conf.set(
         "spark.hadoop.fs.s3a.aws.credentials.provider",
-        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider",
     )
-    conf.set("spark.hadoop.fs.s3a.access.key", aws_credentials.get("ACCESS_KEY"))
-    conf.set("spark.hadoop.fs.s3a.secret.key", aws_credentials.get("SECRET_ACCESS_KEY"))
+    conf.set(
+        "spark.hadoop.fs.s3a.access.key",
+        aws_credentials.get("AccessKeyId"),
+    )
+    conf.set(
+        "spark.hadoop.fs.s3a.secret.key",
+        aws_credentials.get("SecretAccessKey"),
+    )
+    conf.set(
+        "spark.hadoop.fs.s3a.session.token",
+        aws_credentials.get("SessionToken"),
+    )
 
     spark = SparkSession.builder.config(conf=conf).getOrCreate()
     spark.sparkContext.setLogLevel(_LOG_LEVEL)
@@ -123,9 +148,23 @@ if __name__ == "__main__":
     for file_name, dataframe in mapping.items():
         _create_view(dataframe, file_name)
 
+    start_time = datetime.now()
     subset = spark.sql(query)
+    end_time = datetime.now()
+    print(f"{job_id}-> Starting query: {query} execution on time: {start_time}")
+    print(
+        f"{job_id}-> Successfully executed query: {query} execution on time:"
+        f" {end_time}"
+    )
+
+    print(
+        f"{job_id}-> Total time taken in query: {query} execution:"
+        f" {end_time - start_time}"
+    )
+
     subset.write.parquet(f"{destination}/{job_id}")
 
-    logger.info(
-        f"{job_id}-> Successfully written output to destination: {destination}/{job_id}"
+    print(
+        f"{job_id}-> Successfully written output to destination:"
+        f" {destination}/{job_id}"
     )
